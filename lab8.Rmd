@@ -1,0 +1,18 @@
+---
+title: "Lab8"
+output: pdf_document
+date: "2023-04-11"
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(haven)
+library(sandwich)
+library(rdrobust)
+library(rpart)
+library(randomForest)
+
+dat <- read_dta("health.dta")
+view(dat)
+```
+
