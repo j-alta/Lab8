@@ -11,6 +11,7 @@ library(sandwich)
 library(rdrobust)
 library(rpart)
 library(randomForest)
+library(statar)
 
 dat <- read_dta("health.dta")
 view(dat)
@@ -55,8 +56,6 @@ summary(test)
 
 
 
-
-
 ```
 
 
@@ -83,20 +82,59 @@ varImpPlot(mod1, type=1) #Plot the Random Forest Results
 dev.copy(png,'mod1_importance.png')
 dev.off()
 
-
-#(1=mean decrease in accuracy, 2=mean decrease in node impurity)
-
-
-
 #2B: random forest model predicting patient costs, including race
+mod2 <- randomForest(reformulate(all_predictors, "cost_t"), 
+                     ntree=100, 
+                     mtry=150,
+                     importance=TRUE, 
+                     data=training)
+mod2
 
+y_train_predictions_mod2 <- predict(mod2, newdata=training)
+y_test_predictions_mod2 <- predict(mod2, newdata=test)
+
+#Variable importance
+importance(mod2)
+varImpPlot(mod2, type=1) #Plot the Random Forest Results
+dev.copy(png,'mod2_importance.png')
+dev.off()
 
 
 #2C: random forest model predicting patient health, excluding race
+mod3 <- randomForest(reformulate(exclude_race, "gagne_sum_t"), 
+                        ntree=100, 
+                        mtry=149,
+                        importance=TRUE, 
+                        data=training)
+mod3
+
+y_test_predictions_mod3 <- predict(mod3, newdata=test)
+y_train_predictions_mod3 <- predict(mod3, newdata=training)
+
+
+#Variable importance
+importance(mod3)
+varImpPlot(mod3, type=1) #Plot the Random Forest Results
+dev.copy(png,'mod3_importance.png')
+dev.off()
 
 
 #2D: random forest model predicting patient health, including race
+mod4 <- randomForest(reformulate(all_predictors, "gagne_sum_t"), 
+                     ntree=100, 
+                     mtry=150,
+                     importance=TRUE, 
+                     data=training)
+mod4
 
+y_train_predictions_mod4 <- predict(mod4, newdata=training)
+y_test_predictions_mod4 <- predict(mod4, newdata=test)
+
+#Variable importance
+importance(mod4)
+varImpPlot(mod4, type=1) #Plot the Random Forest Results
+dev.copy(png,'mod4_importance.png')
+dev.off()
 
 
 
@@ -104,6 +142,241 @@ dev.off()
 
 
 ```
+```{r q3}
 
+#Q3: Comparing RMSPE for models including/excluding race in the training sample:
+p <- 4
+RMSPE <- matrix(0, p, 1)
+
+## Model 1
+RMSPE[1] <- sqrt(mean((training$cost_t - y_train_predictions_mod1)^2, na.rm=TRUE))
+
+## Model 2
+RMSPE[2] <- sqrt(mean((training$cost_t - y_train_predictions_mod2)^2, na.rm=TRUE))
+
+## Model 3 
+RMSPE[3] <- sqrt(mean((training$gagne_sum_t - y_train_predictions_mod3)^2, na.rm=TRUE))
+
+## Model 4
+RMSPE[4] <- sqrt(mean((training$gagne_sum_t - y_train_predictions_mod4)^2, na.rm=TRUE))
+
+#Display a table of the results
+data.frame(algorithm = c("Model 1 - Costs (excl. race) ", 
+                             "Model 2 - Costs (incl. race) ",
+                             "Model 3 - Health (excl. race)",
+                             "Model 4 - Health (incl. race)"),
+           RMSPE)
+
+
+```
+
+Using training data, between the models that predict patient costs, including race variables leads to a higher RMSPE. Between the models that predict patient health, including race variables leads to a lower RMSPE.
+
+```{r q4}
+
+#Q4: Comparing RMSPE for models including/excluding race in the test sample:
+
+p <- 4
+RMSPE_OOS <- matrix(0, p, 1)
+
+## Model 1
+RMSPE_OOS[1] <- sqrt(mean((test$cost_t - y_test_predictions_mod1)^2, na.rm=TRUE))
+
+## Model 2
+RMSPE_OOS[2] <- sqrt(mean((test$cost_t - y_test_predictions_mod2)^2, na.rm=TRUE))
+
+## Model 3
+RMSPE_OOS[3] <- sqrt(mean((test$gagne_sum_t - y_test_predictions_mod3)^2, na.rm=TRUE))
+
+## Model 4
+RMSPE_OOS[4] <- sqrt(mean((test$gagne_sum_t - y_test_predictions_mod4)^2, na.rm=TRUE))
+
+
+#Display a table of the results
+data.frame(algorithm = c("Model 1 - Costs (excl. race) ", 
+                         "Model 2 - Costs (incl. race) ",
+                         "Model 3 - Health (excl. race)",
+                         "Model 4 - Health (incl. race)"),
+           RMSPE_OOS)
+
+```
+
+Testing the models using the test data, between the models that predict patient costs, including race variables leads to a higher RMSPE. Between the models that predict patient health, including race variables leads to a marginally higher RMSPE.
+
+```{r q5}
+
+#Q5: Exporting test dataset and predictions
+lab8 <- test
+
+lab8$y_test_predictions_mod1 <- y_test_predictions_mod1
+lab8$y_test_predictions_mod2 <- y_test_predictions_mod2
+lab8$y_test_predictions_mod3 <- y_test_predictions_mod3
+lab8$y_test_predictions_mod4 <- y_test_predictions_mod4
+
+write_dta(lab8, "lab8_2023_results.dta")
+
+
+```
+
+
+```{r q6}
+
+#Q6: Converting predictions in the test sample into percentile ranks 
+
+#Read in prediction data
+pred_dat <- read_dta("lab8_2023_results.dta")
+
+#Creating percentile ranks for Model 1 predictions 
+pred_dat <- pred_dat |> 
+          mutate(riskscore_1 = rank(y_test_predictions_mod1))
+
+max_rank_1 <- max(pred_dat$riskscore_1)
+
+pred_dat$riskscore_rank_1 <- (pred_dat$riskscore_1/max_rank)*100
+
+percentile_rank <- function(variable){
+  r <- ifelse(is.na(variable), NA, rank(variable, ties.method = "average"))
+  100*r/max(r, na.rm = TRUE)
+}
+
+pred_dat$riskscore_1 <- with(pred_dat, percentile_rank(y_test_predictions_mod1))
+view(pred_dat)
+
+
+#Percentile ranks for Model 2 predictions
+pred_dat <- pred_dat |> 
+          mutate(riskscore_2 = rank(y_test_predictions_mod2))
+
+max_rank_2 <- max(pred_dat$riskscore_2)
+
+pred_dat$riskscore_rank_2 <- (pred_dat$riskscore_2/max_rank)*100
+
+percentile_rank <- function(variable){
+  r <- ifelse(is.na(variable), NA, rank(variable, ties.method = "average"))
+  100*r/max(r, na.rm = TRUE)
+}
+
+pred_dat$riskscore_2 <- with(pred_dat, percentile_rank(y_test_predictions_mod2))
+
+#Percentile ranks for Model 3 predictions
+pred_dat <- pred_dat |> 
+          mutate(riskscore_3 = rank(y_test_predictions_mod3))
+
+max_rank_3 <- max(pred_dat$riskscore_3)
+
+pred_dat$riskscore_rank_3 <- (pred_dat$riskscore_3/max_rank)*100
+
+percentile_rank <- function(variable){
+  r <- ifelse(is.na(variable), NA, rank(variable, ties.method = "average"))
+  100*r/max(r, na.rm = TRUE)
+}
+
+pred_dat$riskscore_3 <- with(pred_dat, percentile_rank(y_test_predictions_mod3))
+
+#Percentile ranks for Model 4 predictions 
+pred_dat <- pred_dat |> 
+          mutate(riskscore_4 = rank(y_test_predictions_mod4))
+
+max_rank_4 <- max(pred_dat$riskscore_4)
+
+pred_dat$riskscore_rank_4 <- (pred_dat$riskscore_4/max_rank)*100
+
+percentile_rank <- function(variable){
+  r <- ifelse(is.na(variable), NA, rank(variable, ties.method = "average"))
+  100*r/max(r, na.rm = TRUE)
+}
+
+pred_dat$riskscore_4 <- with(pred_dat, percentile_rank(y_test_predictions_mod4))
+view(pred_dat)
+
+
+
+
+
+```
+
+
+```{r q7}
+
+#Evaluating risk scores for extra resources, including race
+
+#7a: Creating indicator variables for each model when risk score is > 55
+pred_dat$highrisk_1 <- ifelse(pred_dat$riskscore_1 > 55, 1, 0)
+pred_dat$highrisk_2 <- ifelse(pred_dat$riskscore_2 > 55, 1, 0)
+pred_dat$highrisk_3 <- ifelse(pred_dat$riskscore_3 > 55, 1, 0)
+pred_dat$highrisk_4 <- ifelse(pred_dat$riskscore_4 > 55, 1, 0)
+
+#7B: Reporting fraction of Black patients that would be eligible for the program using each of the four models
+
+pred_dat_black <- pred_dat |> 
+                  filter(tm1_dem_black == 1) |> 
+                  summarize(mean(highrisk_1),
+                            mean(highrisk_2),
+                            mean(highrisk_3),
+                            mean(highrisk_4))
+pred_dat_black
+
+#7C: Reporting fraction of eligible patients that are Black using each of the four models
+hrisk1 <- pred_dat |> 
+         filter(highrisk_1 == 1) |> 
+         summarize(mean(tm1_dem_black))
+
+hrisk2 <- pred_dat |> 
+         filter(highrisk_2 == 1) |> 
+         summarize(mean(tm1_dem_black))
+
+hrisk3 <- pred_dat |> 
+         filter(highrisk_3 == 1) |> 
+         summarize(mean(tm1_dem_black))
+
+hrisk4 <- pred_dat |> 
+         filter(highrisk_4 == 1) |> 
+         summarize(mean(tm1_dem_black))
+
+black_table <- c(hrisk1, hrisk2, hrisk3, hrisk4)
+black_table
+
+```
+Over half of all Black patients would be eligible for the program using each of the four algorithms. However, a higher proportion of Black patients would be eligible using models 3 and 4, which predict the label for patient health, as opposed to models 1 and 2, which predict the label for patient costs. 
+Conversely, a higher proportion of eligible patients in models 3 and 4 are Black, as opposed to models 1 and 2. 
+
+```{r q8}
+
+#Creating binned scatterplots of patient costs and patient health vs. risk score for White and Black patients separately:
+
+#Bin scatter plot – connected dots
+#Model 1 
+graph1 <- ggplot(pred_dat, aes(x = riskscore_1 , y = cost_t, color = race)) +
+ stat_binmean(n = 20, geom = "line") +
+ stat_binmean(n = 20, geom = "point")
+graph1
+
+
+#Model 2
+graph2 <- ggplot(pred_dat, aes(x = riskscore_2 , y = cost_t, color = race)) +
+ stat_binmean(n = 20, geom = "line") +
+ stat_binmean(n = 20, geom = "point")
+graph2
+
+#Model 3
+graph3 <- ggplot(pred_dat, aes(x = riskscore_3 , y = gagne_sum_t, color = race)) +
+ stat_binmean(n = 20, geom = "line") +
+ stat_binmean(n = 20, geom = "point")
+graph3
+
+
+#Model 4 
+graph4 <- ggplot(pred_dat, aes(x = riskscore_4 , y = gagne_sum_t, color = race)) +
+ stat_binmean(n = 20, geom = "line") +
+ stat_binmean(n = 20, geom = "point")
+graph4
+
+
+
+
+```
+
+***Question 9***
+The target parameter used to build the algorithm is prone to bias in a way that can underrepresent certain populations, such as Black patients, from being "seen" by the algorithm as entering a higher threshold for extra patient care or resources. I agree because as seen on the graphs, Black and white patients are roughly the same in patient costs and health outcomes, but models 1 and 2 underrepresent Black patients as opposed to models 3 and 4.
 
 
